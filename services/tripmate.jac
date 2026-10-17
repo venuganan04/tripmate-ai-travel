@@ -3,7 +3,7 @@ import from jaclang.byllm.lib { Model }
 
 # Gemini-compatible model settings remain on the server.
 glob gemini_model: Model = Model(
-    model_name=os.getenv("LLM_MODEL", "gemini/gemini-2.5-flash"),
+    model_name=os.getenv("LLM_MODEL", "gemini/gemini-3.8-flash"),
     api_key=os.getenv("Gemini_API_Key", os.getenv("GOOGLE_API_KEY", ""))
 );
 
