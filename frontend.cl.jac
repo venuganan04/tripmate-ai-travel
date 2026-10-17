@@ -1,7 +1,7 @@
 import from .components.ui.button { Button }
 import from .components.ui.card { Card, CardContent }
 import from .components.ui.input { Input }
-sv import from .services.tripmate { generate_tripmate_reply }
+sv import from .services.tripmate { generate_tripmate_reply, suggest_budget_recovery }
 
 # Sri Lanka travel notes used by TripMate's offline companion.
 glob places: list[dict] = [
@@ -22,6 +22,16 @@ cl def:pub TripMateLanding() -> JsxElement {
     has interests: str = "Nature";
     has trips: list[dict] = [];
     has itinerary: list[str] = [];
+    has expenses: list[dict] = [];
+    has expense_name: str = "";
+    has expense_amount: str = "";
+    has expense_error: str = "";
+    has recovery_suggestion: str = "";
+    has recovery_error: str = "";
+    has recovery_loading: bool = False;
+    has proposed_itinerary: list[str] = [];
+    has original_itinerary: list[str] = [];
+    has recovery_applied: bool = False;
     has notice: str = "";
     has chat_open: bool = False;
     has chat_input: str = "";
@@ -36,6 +46,83 @@ cl def:pub TripMateLanding() -> JsxElement {
     def on_budget(e: ChangeEvent) { budget = e.target.value; }
     def on_interests(e: ChangeEvent) { interests = e.target.value; }
     def on_chat_input(e: ChangeEvent) { chat_input = e.target.value; }
+    def on_expense_name(e: ChangeEvent) { expense_name = e.target.value; }
+    def on_expense_amount(e: ChangeEvent) { expense_amount = e.target.value; }
+
+    def spent_total() -> float {
+        total: float = 0.0;
+        for expense in expenses { total = total + (expense["amount"] as float); }
+        return total;
+    }
+
+    def estimated_remaining() -> float {
+        if not budget.strip() { return 0.0; }
+        planned = float(budget);
+        daily_estimate = planned / 3.0;
+        days_left = 3 - len(itinerary);
+        if days_left < 0 { days_left = 0; }
+        return daily_estimate * float(days_left);
+    }
+
+    def add_expense(e: FormEvent) {
+        e.preventDefault();
+        amount_value = float(expense_amount) if expense_amount.strip() else 0.0;
+        if not expense_name.strip() or amount_value <= 0 {
+            expense_error = "Enter an expense name and a positive amount.";
+            return;
+        }
+        expenses = expenses + [{"name": expense_name.strip(), "amount": amount_value}];
+        expense_name = "";
+        expense_amount = "";
+        expense_error = "";
+        recovery_suggestion = "";
+    }
+
+    def remove_expense(index: int) {
+        expenses = [item for (i, item) in enumerate(expenses) if i != index];
+        recovery_suggestion = "";
+    }
+
+    async def request_recovery(e: MouseEvent) {
+        if recovery_loading { return; }
+        if not budget.strip() or len(itinerary) == 0 {
+            recovery_error = "Create a trip with a budget and itinerary before requesting recovery ideas.";
+            return;
+        }
+        recovery_loading = True;
+        recovery_error = "";
+        recovery_suggestion = "";
+        context = "Destination: " + destination + "; date range: " + start_date + " to " + end_date + "; group size: " + travelers + "; preferences: " + interests + "; original budget LKR " + budget + "; verified recorded expenses LKR " + str(spent_total()) + "; deterministic estimated remaining LKR " + str(estimated_remaining()) + "; itinerary days already generated: " + str(itinerary) + ". All days in this sample itinerary are uncompleted unless stated otherwise. No must-visits, bookings, price quotes, or live data were provided. Suggest only potential replacements, never claim exact savings or alter data.";
+        try {
+            answer = await suggest_budget_recovery(context);
+            if answer["ok"] { recovery_suggestion = answer["suggestion"] as str; }
+            else { recovery_error = answer["message"] as str; }
+        } except Exception { recovery_error = "Could not reach Gemini. Your expense records and original trip remain unchanged."; }
+        recovery_loading = False;
+    }
+
+    def apply_recovery(e: MouseEvent) {
+        if not recovery_suggestion.strip() { return; }
+        original_itinerary = itinerary;
+        proposed_itinerary = itinerary + ["Budget idea to review: " + recovery_suggestion];
+        recovery_applied = True;
+        notice = "Suggestion added as an advisory note. Original itinerary is saved for undo.";
+    }
+
+    def keep_original(e: MouseEvent) {
+        recovery_suggestion = "";
+        recovery_error = "";
+        proposed_itinerary = [];
+        notice = "Original itinerary kept unchanged.";
+    }
+
+    def undo_recovery(e: MouseEvent) {
+        if recovery_applied { itinerary = original_itinerary; }
+        recovery_applied = False;
+        proposed_itinerary = [];
+        recovery_suggestion = "";
+        notice = "Restored the original itinerary.";
+    }
 
     def select_place(name: str) {
         destination = name;
@@ -170,6 +257,18 @@ cl def:pub TripMateLanding() -> JsxElement {
                             </form>
                             {if len(itinerary) > 0 {
                                 <div className="mt-6 rounded-2xl border border-[#dce8e1] bg-[#f8faf7] p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg font-semibold">A first look at {destination}</h3><span className="rounded-full bg-[#def4ed] px-3 py-1 text-xs font-semibold text-[#176356]">SAMPLE PLAN</span></div><ol className="mt-4 flex flex-col gap-3">{for (i, day) in enumerate(itinerary) {<li key={str(i)} className="flex gap-3 text-sm leading-6 text-[#425d57]"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#20BFA9]/15 text-xs font-bold text-[#087f74]">{str(i + 1)}</span>{day}</li>}}</ol><p className="mt-4 text-xs text-[#778984]">For {travelers} traveler(s) · Budget entered: LKR {budget}. Estimate not calculated.</p></div>
+                            }}
+                            {if len(itinerary) > 0 {
+                                <div className="mt-6 rounded-2xl border border-[#cddfd6] bg-white p-5">
+                                    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">Trip budget</h3><p className="mt-1 text-xs text-[#607572]">Calculated from your entered budget and session expenses. Remaining cost uses a simple per-day budget estimate, not live prices.</p></div><span className={"rounded-full px-3 py-1 text-xs font-semibold " + ("bg-[#ffe9e4] text-[#713e32]" if spent_total() + estimated_remaining() > float(budget) else "bg-[#def4ed] text-[#176356]")}>{"Over budget" if spent_total() + estimated_remaining() > float(budget) else "Within budget"}</span></div>
+                                    <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-[#f6f5f0] p-3"><p className="text-xs text-[#607572]">Planned budget</p><p className="mt-1 font-semibold tabular-nums">LKR {budget}</p></div><div className="rounded-xl bg-[#f6f5f0] p-3"><p className="text-xs text-[#607572]">Recorded spend</p><p className="mt-1 font-semibold tabular-nums">LKR {str(spent_total())}</p></div><div className="rounded-xl bg-[#f6f5f0] p-3"><p className="text-xs text-[#607572]">Estimated remaining</p><p className="mt-1 font-semibold tabular-nums">LKR {str(estimated_remaining())}</p></div></div>
+                                    <p className="mt-3 text-xs text-[#778984]">Projected total: LKR {str(spent_total() + estimated_remaining())}. Estimates are deterministic planning guidance only; recorded expenses are separate.</p>
+                                    <form onSubmit={add_expense} className="mt-5 grid gap-3 sm:grid-cols-[1fr_160px_auto]"><label className="flex flex-col gap-1 text-xs font-semibold">Expense name<Input value={expense_name} onChange={on_expense_name} placeholder="Local transfer" className="h-10 rounded-lg" /></label><label className="flex flex-col gap-1 text-xs font-semibold">Amount (LKR)<Input type="number" min="1" value={expense_amount} onChange={on_expense_amount} placeholder="2500" className="h-10 rounded-lg" /></label><Button type="submit" className="h-10 self-end rounded-lg bg-[#0B3D46] text-white">Add expense</Button></form>
+                                    {expense_error and <p role="alert" className="mt-2 text-sm text-[#9c473c]">{expense_error}</p>}
+                                    <div className="mt-4 flex flex-col gap-2">{if len(expenses) == 0 {<p className="rounded-lg bg-[#f6f5f0] p-3 text-sm text-[#607572]">No expenses recorded for this session yet.</p>}}{for (i, expense) in enumerate(expenses) {<div key={str(i)} className="flex items-center justify-between rounded-lg border border-[#e3e8e3] px-3 py-2 text-sm"><span>{expense["name"]}</span><span className="flex items-center gap-3 font-medium tabular-nums">LKR {str(expense["amount"])}<button type="button" onClick={lambda { remove_expense(i); }} className="text-xs text-[#9c473c] underline">Remove</button></span></div>}}</div>
+                                    {if spent_total() + estimated_remaining() > float(budget) {
+                                        <div className="mt-5 rounded-xl border border-[#edd4c8] bg-[#fff8f3] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Budget recovery ideas</p><p className="mt-1 text-xs text-[#755c50]">Gemini suggestions are unpriced advice, not verified savings or edits.</p></div><Button type="button" onClick={request_recovery} disabled={recovery_loading} className="rounded-lg bg-[#0B3D46] text-white">{"Getting ideas…" if recovery_loading else "Ask Gemini"}</Button></div>{recovery_error and <p role="alert" className="mt-3 text-sm text-[#9c473c]">{recovery_error}</p>}{recovery_suggestion and <div className="mt-4 rounded-lg bg-white p-4"><p className="whitespace-pre-wrap text-sm leading-6">{recovery_suggestion}</p><p className="mt-2 text-xs text-[#778984]">No savings amount is claimed. Your expense total remains calculated locally.</p><div className="mt-4 flex flex-wrap gap-2"><Button type="button" onClick={apply_recovery} className="rounded-lg bg-[#20BFA9] text-[#073b3a]">Apply as review note</Button><Button type="button" onClick={keep_original} variant="outline" className="rounded-lg">Keep original</Button></div></div>}{recovery_applied and <Button type="button" onClick={undo_recovery} variant="outline" className="mt-3 rounded-lg">Undo and restore original</Button>}</div>
+                                    }}</div>
                             }}</CardContent>
                     </Card>
                 </div>
