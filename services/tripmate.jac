@@ -43,7 +43,7 @@ async def:pub suggest_budget_recovery(context: str) -> dict {
 
 async def:pub generate_tripmate_reply(question: str, context: str) -> dict {
     if not os.getenv("Gemini_API_Key", os.getenv("GOOGLE_API_KEY", "")) {
-        return {"ok": False, "message": "Gemini is not configured yet. Add GOOGLE_API_KEY in JaCHammer Settings > Environment, then restart the preview."};
+        return {"ok": False, "message": "Gemini is not configured yet. Add Gemini_API_Key in JaCHammer Settings > Environment, then restart the preview."};
     }
     if len(question.strip()) == 0 or len(question) > 1200 {
         return {"ok": False, "message": "Enter a travel question under 1,200 characters."};

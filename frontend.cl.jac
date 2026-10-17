@@ -37,7 +37,7 @@ cl def:pub TripMateLanding() -> JsxElement {
     has chat_input: str = "";
     has chat_loading: bool = False;
     has chat_error: str = "";
-    has chat_lines: list[dict] = [{"who": "TripMate", "text": "Ayubowan! Ask me about Sri Lanka travel. Gemini answers when securely configured on the server; replies use only the trip and expense context provided in this session."}];
+    has chat_lines: list[dict] = [{"who": "TripMate", "text": "Ayubowan! Ask about Sri Lanka travel, your current itinerary, or the expenses recorded in this browser session. Gemini replies when securely configured on the server."}];
 
     def on_destination(e: ChangeEvent) { destination = e.target.value; }
     def on_start(e: ChangeEvent) { start_date = e.target.value; }
@@ -56,12 +56,17 @@ cl def:pub TripMateLanding() -> JsxElement {
     }
 
     def estimated_remaining() -> float {
-        if not budget.strip() { return 0.0; }
+        if not budget.strip() or len(itinerary) == 0 { return 0.0; }
         planned = float(budget);
         daily_estimate = planned / 3.0;
         days_left = 3 - len(itinerary);
         if days_left < 0 { days_left = 0; }
         return daily_estimate * float(days_left);
+    }
+
+    def over_budget() -> bool {
+        if not budget.strip() { return False; }
+        return spent_total() + estimated_remaining() > float(budget);
     }
 
     def add_expense(e: FormEvent) {
@@ -168,7 +173,7 @@ cl def:pub TripMateLanding() -> JsxElement {
         if not chat_input.strip() or chat_loading { return; }
         chat_loading = True;
         chat_error = "";
-        context = "Current session trip: " + destination + "; dates: " + start_date + " to " + end_date + "; travelers: " + travelers + "; interests: " + interests + "; planned budget LKR: " + budget + ". Current itinerary: " + str(itinerary) + ". Session trips: " + str(trips) + ". Recorded expenses: none; this version has no expense tracker.";
+        context = "Current session trip: " + destination + "; dates: " + start_date + " to " + end_date + "; travelers: " + travelers + "; interests: " + interests + "; planned budget LKR: " + budget + ". Current itinerary: " + str(itinerary) + ". Session trips: " + str(trips) + ". Actual session expenses recorded: " + str(expenses) + ". Deterministic recorded spend LKR: " + str(spent_total()) + "; estimated remaining trip cost LKR: " + str(estimated_remaining()) + ". These costs are app estimates, not real price quotes.";
         try {
             result = await generate_tripmate_reply(chat_input.strip(), context);
             if result["ok"] { chat_lines = chat_lines + [{"who": "You", "text": chat_input.strip()}, {"who": "TripMate · Gemini", "text": result["reply"] as str}]; chat_input = ""; }
@@ -194,8 +199,9 @@ cl def:pub TripMateLanding() -> JsxElement {
                     <a href="#destinations" className="transition-colors hover:text-[#119c8c]">Destinations</a>
                     <a href="#planner" className="transition-colors hover:text-[#119c8c]">Trip planner</a>
                     <a href="#my-trips" className="transition-colors hover:text-[#119c8c]">My trips</a>
+                    <a href="#budget" className="transition-colors hover:text-[#119c8c]">Budget</a>
                 </div>
-                <a href="#planner" className="rounded-full bg-[#0B3D46] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#15545b]">Plan my trip <span aria-hidden="true">↗</span></a>
+                <div className="flex items-center gap-2"><a href="#budget" className="rounded-full border border-[#0B3D46]/20 px-4 py-2.5 text-sm font-semibold text-[#0B3D46] transition-colors hover:bg-[#e9f1ec]">Budget</a><a href="#planner" className="rounded-full bg-[#0B3D46] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#15545b]">Plan my trip <span aria-hidden="true">↗</span></a></div>
             </div>
         </nav>
 
@@ -258,15 +264,15 @@ cl def:pub TripMateLanding() -> JsxElement {
                             {if len(itinerary) > 0 {
                                 <div className="mt-6 rounded-2xl border border-[#dce8e1] bg-[#f8faf7] p-5"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg font-semibold">A first look at {destination}</h3><span className="rounded-full bg-[#def4ed] px-3 py-1 text-xs font-semibold text-[#176356]">SAMPLE PLAN</span></div><ol className="mt-4 flex flex-col gap-3">{for (i, day) in enumerate(itinerary) {<li key={str(i)} className="flex gap-3 text-sm leading-6 text-[#425d57]"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#20BFA9]/15 text-xs font-bold text-[#087f74]">{str(i + 1)}</span>{day}</li>}}</ol><p className="mt-4 text-xs text-[#778984]">For {travelers} traveler(s) · Budget entered: LKR {budget}. Estimate not calculated.</p></div>
                             }}
-                            {if len(itinerary) > 0 {
-                                <div className="mt-6 rounded-2xl border border-[#cddfd6] bg-white p-5">
-                                    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">Trip budget</h3><p className="mt-1 text-xs text-[#607572]">Calculated from your entered budget and session expenses. Remaining cost uses a simple per-day budget estimate, not live prices.</p></div><span className={"rounded-full px-3 py-1 text-xs font-semibold " + ("bg-[#ffe9e4] text-[#713e32]" if spent_total() + estimated_remaining() > float(budget) else "bg-[#def4ed] text-[#176356]")}>{"Over budget" if spent_total() + estimated_remaining() > float(budget) else "Within budget"}</span></div>
+                            {if True {
+                                <div id="budget" className="mt-6 scroll-mt-24 rounded-2xl border border-[#cddfd6] bg-white p-5">
+                                    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-lg font-semibold">Trip budget</h3><p className="mt-1 text-xs text-[#607572]">Calculated from your entered budget and session expenses. Remaining cost uses a simple per-day budget estimate, not live prices.</p></div><span className={"rounded-full px-3 py-1 text-xs font-semibold " + ("bg-[#e9f1ec] text-[#607572]" if not budget.strip() else ("bg-[#ffe9e4] text-[#713e32]" if over_budget() else "bg-[#def4ed] text-[#176356]"))}>{"Enter a budget" if not budget.strip() else ("Over budget" if over_budget() else "Within budget")}</span></div>
                                     <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-[#f6f5f0] p-3"><p className="text-xs text-[#607572]">Planned budget</p><p className="mt-1 font-semibold tabular-nums">LKR {budget}</p></div><div className="rounded-xl bg-[#f6f5f0] p-3"><p className="text-xs text-[#607572]">Recorded spend</p><p className="mt-1 font-semibold tabular-nums">LKR {str(spent_total())}</p></div><div className="rounded-xl bg-[#f6f5f0] p-3"><p className="text-xs text-[#607572]">Estimated remaining</p><p className="mt-1 font-semibold tabular-nums">LKR {str(estimated_remaining())}</p></div></div>
                                     <p className="mt-3 text-xs text-[#778984]">Projected total: LKR {str(spent_total() + estimated_remaining())}. Estimates are deterministic planning guidance only; recorded expenses are separate.</p>
                                     <form onSubmit={add_expense} className="mt-5 grid gap-3 sm:grid-cols-[1fr_160px_auto]"><label className="flex flex-col gap-1 text-xs font-semibold">Expense name<Input value={expense_name} onChange={on_expense_name} placeholder="Local transfer" className="h-10 rounded-lg" /></label><label className="flex flex-col gap-1 text-xs font-semibold">Amount (LKR)<Input type="number" min="1" value={expense_amount} onChange={on_expense_amount} placeholder="2500" className="h-10 rounded-lg" /></label><Button type="submit" className="h-10 self-end rounded-lg bg-[#0B3D46] text-white">Add expense</Button></form>
                                     {expense_error and <p role="alert" className="mt-2 text-sm text-[#9c473c]">{expense_error}</p>}
                                     <div className="mt-4 flex flex-col gap-2">{if len(expenses) == 0 {<p className="rounded-lg bg-[#f6f5f0] p-3 text-sm text-[#607572]">No expenses recorded for this session yet.</p>}}{for (i, expense) in enumerate(expenses) {<div key={str(i)} className="flex items-center justify-between rounded-lg border border-[#e3e8e3] px-3 py-2 text-sm"><span>{expense["name"]}</span><span className="flex items-center gap-3 font-medium tabular-nums">LKR {str(expense["amount"])}<button type="button" onClick={lambda { remove_expense(i); }} className="text-xs text-[#9c473c] underline">Remove</button></span></div>}}</div>
-                                    {if spent_total() + estimated_remaining() > float(budget) {
+                                    {if over_budget() {
                                         <div className="mt-5 rounded-xl border border-[#edd4c8] bg-[#fff8f3] p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Budget recovery ideas</p><p className="mt-1 text-xs text-[#755c50]">Gemini suggestions are unpriced advice, not verified savings or edits.</p></div><Button type="button" onClick={request_recovery} disabled={recovery_loading} className="rounded-lg bg-[#0B3D46] text-white">{"Getting ideas…" if recovery_loading else "Ask Gemini"}</Button></div>{recovery_error and <p role="alert" className="mt-3 text-sm text-[#9c473c]">{recovery_error}</p>}{recovery_suggestion and <div className="mt-4 rounded-lg bg-white p-4"><p className="whitespace-pre-wrap text-sm leading-6">{recovery_suggestion}</p><p className="mt-2 text-xs text-[#778984]">No savings amount is claimed. Your expense total remains calculated locally.</p><div className="mt-4 flex flex-wrap gap-2"><Button type="button" onClick={apply_recovery} className="rounded-lg bg-[#20BFA9] text-[#073b3a]">Apply as review note</Button><Button type="button" onClick={keep_original} variant="outline" className="rounded-lg">Keep original</Button></div></div>}{recovery_applied and <Button type="button" onClick={undo_recovery} variant="outline" className="mt-3 rounded-lg">Undo and restore original</Button>}</div>
                                     }}</div>
                             }}</CardContent>
