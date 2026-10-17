@@ -1,6 +1,7 @@
 import from .components.ui.button { Button }
 import from .components.ui.card { Card, CardContent }
 import from .components.ui.input { Input }
+sv import from .services.tripmate { generate_tripmate_reply }
 
 # Sri Lanka travel notes used by TripMate's offline companion.
 glob places: list[dict] = [
@@ -24,7 +25,9 @@ cl def:pub TripMateLanding() -> JsxElement {
     has notice: str = "";
     has chat_open: bool = False;
     has chat_input: str = "";
-    has chat_lines: list[dict] = [{"who": "TripMate", "text": "Ayubowan! I'm your local TripMate guide. Ask me about beaches, hill country, culture, wildlife, or food. I use a local travel guide, not a live AI model."}];
+    has chat_loading: bool = False;
+    has chat_error: str = "";
+    has chat_lines: list[dict] = [{"who": "TripMate", "text": "Ayubowan! Ask me about Sri Lanka travel. Gemini answers when securely configured on the server; replies use only the trip and expense context provided in this session."}];
 
     def on_destination(e: ChangeEvent) { destination = e.target.value; }
     def on_start(e: ChangeEvent) { start_date = e.target.value; }
@@ -67,24 +70,29 @@ cl def:pub TripMateLanding() -> JsxElement {
 
     def send_chat(e: FormEvent) {
         e.preventDefault();
-        question = chat_input.strip();
-        if not question { return; }
-        lower_question = question.lower();
-        reply = "I don't have a reliable local note for that yet. Try asking about Galle, Ella, beaches, culture, wildlife, food, or the hill country; check current local guidance before travelling.";
-        if "ella" in lower_question or "train" in lower_question or "nature" in lower_question {
-            reply = "For Ella and the hill country, allow unhurried travel time. Visit a tea estate, walk to a viewpoint early, and check current train schedules locally.";
-        } elif "beach" in lower_question or "mirissa" in lower_question or "galle" in lower_question {
-            reply = "For the south coast, pair Galle Fort with a few slower beach days around Mirissa. Check local sea conditions before swimming or booking boat trips.";
-        } elif "culture" in lower_question or "kandy" in lower_question or "sigiriya" in lower_question {
-            reply = "For culture and history, consider Kandy and Sigiriya, dress respectfully at sacred sites, and plan time for the heat and stairs.";
-        } elif "food" in lower_question or "eat" in lower_question {
-            reply = "Try rice and curry, hoppers, and fresh tropical fruit. Ask about spice levels and mention dietary needs when ordering.";
-        } elif "wildlife" in lower_question or "safari" in lower_question {
-            reply = "Sri Lanka has wildlife parks across the island. Choose a responsible local operator, follow park guidance, and keep a respectful distance from animals.";
-        } elif "budget" in lower_question {
-            reply = "Costs vary by season, transport, and stay. Set a daily allowance for meals, local transfers, and activities, then keep a little room for changes.";
-        }
-        chat_lines = chat_lines + [{"who": "You", "text": question}, {"who": "TripMate", "text": reply}];
+        send_chat_form();
+    }
+
+    async def retry_chat(e: MouseEvent) {
+        await send_chat_form();
+    }
+
+    async def send_chat_form() {
+        if not chat_input.strip() or chat_loading { return; }
+        chat_loading = True;
+        chat_error = "";
+        context = "Current session trip: " + destination + "; dates: " + start_date + " to " + end_date + "; travelers: " + travelers + "; interests: " + interests + "; planned budget LKR: " + budget + ". Current itinerary: " + str(itinerary) + ". Session trips: " + str(trips) + ". Recorded expenses: none; this version has no expense tracker.";
+        try {
+            result = await generate_tripmate_reply(chat_input.strip(), context);
+            if result["ok"] { chat_lines = chat_lines + [{"who": "You", "text": chat_input.strip()}, {"who": "TripMate · Gemini", "text": result["reply"] as str}]; chat_input = ""; }
+            else { chat_error = result["message"] as str; }
+        } except Exception { chat_error = "TripMate couldn't reach Gemini. Your trip is unchanged. Please retry."; }
+        chat_loading = False;
+    }
+
+    def new_conversation(e: MouseEvent) {
+        chat_lines = [{"who": "TripMate", "text": "New conversation started. Gemini uses only the current trip details and this session's chat."}];
+        chat_error = "";
         chat_input = "";
     }
 
@@ -176,7 +184,7 @@ cl def:pub TripMateLanding() -> JsxElement {
             </section>
 
             <section className="bg-[#0B3D46] px-5 py-14 text-white md:px-10 md:py-20">
-                <div className="mx-auto grid max-w-7xl items-center gap-8 md:grid-cols-[.8fr_1.2fr]"><div><p className="text-xs font-bold tracking-[.18em] text-[#73d9c9]">A LOCAL GUIDE IN YOUR POCKET</p><h2 className="mt-3 text-3xl font-semibold">Ask the island-minded companion.</h2><p className="mt-3 max-w-md text-sm leading-6 text-white/70">Get starter tips for places, food, culture, and nature. Replies come from a small predefined local guide, not a live AI.</p></div><div className="rounded-[24px] border border-white/15 bg-white/10 p-5 backdrop-blur"><div className="flex items-center gap-3 border-b border-white/15 pb-4"><span className="flex size-10 items-center justify-center rounded-full bg-[#20BFA9] font-bold text-[#073b3a]">T</span><div><p className="font-semibold">TripMate guide</p><p className="text-xs text-[#a9d8ce]">Offline travel notes · sample guidance</p></div></div><div className="flex max-h-64 flex-col gap-3 overflow-y-auto py-4">{for (i, line) in enumerate(chat_lines) {<div key={str(i)} className={"max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 " + ("self-end bg-[#20BFA9] text-[#073b3a]" if line["who"] == "You" else "self-start bg-white/10 text-white/90")}><p className="mb-1 text-[10px] font-bold uppercase tracking-wider opacity-70">{line["who"]}</p>{line["text"]}</div>}}</div><form onSubmit={send_chat} className="flex gap-2 rounded-xl bg-white p-2"><label className="sr-only" htmlFor="chat-question">Ask a Sri Lanka travel question</label><Input id="chat-question" value={chat_input} onChange={on_chat_input} placeholder="Ask about beaches, food, wildlife…" className="h-11 border-0 text-[#173c3a] shadow-none focus-visible:ring-0" /><Button type="submit" className="h-11 rounded-lg bg-[#20BFA9] px-4 font-semibold text-[#073b3a] hover:bg-[#70dfce]">Send</Button></form></div></div>
+                <div className="mx-auto grid max-w-7xl items-center gap-8 md:grid-cols-[.8fr_1.2fr]"><div><p className="text-xs font-bold tracking-[.18em] text-[#73d9c9]">A LOCAL GUIDE IN YOUR POCKET</p><h2 className="mt-3 text-3xl font-semibold">Ask the island-minded companion.</h2><p className="mt-3 max-w-md text-sm leading-6 text-white/70">Get starter tips for places, food, culture, and nature. Replies come from a small predefined local guide, not a live AI.</p></div><div className="rounded-[24px] border border-white/15 bg-white/10 p-5 backdrop-blur"><div className="flex items-center gap-3 border-b border-white/15 pb-4"><span className="flex size-10 items-center justify-center rounded-full bg-[#20BFA9] font-bold text-[#073b3a]">T</span><div><p className="font-semibold">TripMate guide</p><p className="text-xs text-[#a9d8ce]">Gemini when configured · session context only</p></div><button type="button" onClick={new_conversation} className="ml-auto rounded-full border border-white/20 px-3 py-2 text-xs font-semibold text-white hover:bg-white/10">New chat</button></div><div className="flex max-h-64 flex-col gap-3 overflow-y-auto py-4">{for (i, line) in enumerate(chat_lines) {<div key={str(i)} className={"max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-6 " + ("self-end bg-[#20BFA9] text-[#073b3a]" if line["who"] == "You" else "self-start bg-white/10 text-white/90")}><p className="mb-1 text-[10px] font-bold uppercase tracking-wider opacity-70">{line["who"]}</p>{line["text"]}</div>}}{chat_loading and <div role="status" className="self-start rounded-2xl bg-white/10 px-4 py-3 text-sm text-white/80">TripMate is asking Gemini…</div>}</div>{chat_error and <div role="alert" className="mb-3 rounded-xl bg-[#ffe9e4] px-4 py-3 text-sm text-[#713e32]">{chat_error}<button type="button" onClick={retry_chat} className="ml-3 font-semibold underline">Retry</button></div>}<form onSubmit={send_chat} className="flex gap-2 rounded-xl bg-white p-2"><label className="sr-only" htmlFor="chat-question">Ask a Sri Lanka travel question</label><Input id="chat-question" value={chat_input} onChange={on_chat_input} placeholder="Ask about beaches, food, wildlife…" className="h-11 border-0 text-[#173c3a] shadow-none focus-visible:ring-0" /><Button type="submit" className="h-11 rounded-lg bg-[#20BFA9] px-4 font-semibold text-[#073b3a] hover:bg-[#70dfce]" disabled={chat_loading or not chat_input.strip()}>{"Thinking…" if chat_loading else "Send"}</Button></form></div></div>
             </section>
         </main>
 
