@@ -1,5 +1,7 @@
-import from .frontend { app as ClientApp }
+import from frontend { TripMateLanding }
+import ".styles.global.css";
 
+# Single-page landing app.
 def:pub app() -> JsxElement {
-    return <ClientApp />;
+    return <TripMateLanding />;
 }
